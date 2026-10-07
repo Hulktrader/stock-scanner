@@ -1,129 +1,188 @@
 import requests
 import statistics
+import csv
+import io
 from datetime import datetime, timezone
 
 # ============================================================
-# HULKTRADER STOCK SCANNER V2
-# USA + EUROPE
-# Technical Entry Radar
+# HULKTRADER USA ENTRY RADAR
+# Dynamic NASDAQ + NYSE universe
 # ============================================================
 
-USER_AGENT = "Mozilla/5.0 (HulkTrader Stock Scanner)"
+USER_AGENT = "HulkTrader-Stock-Scanner/2.0"
 
-# ------------------------------------------------------------
-# STOCK UNIVERSE
-# ------------------------------------------------------------
+MIN_PRICE = 5.0
+MIN_AVG_VOLUME = 200000
+MIN_HISTORY = 210
 
-STOCKS = {
-
-    # ================= USA =================
-    "AAPL.US": "AAPL",
-    "MSFT.US": "MSFT",
-    "NVDA.US": "NVDA",
-    "AMZN.US": "AMZN",
-    "GOOGL.US": "GOOGL",
-    "META.US": "META",
-    "TSLA.US": "TSLA",
-    "AVGO.US": "AVGO",
-    "AMD.US": "AMD",
-    "NFLX.US": "NFLX",
-    "ADBE.US": "ADBE",
-    "CRM.US": "CRM",
-    "ORCL.US": "ORCL",
-    "INTC.US": "INTC",
-    "QCOM.US": "QCOM",
-    "MU.US": "MU",
-    "AMAT.US": "AMAT",
-    "LRCX.US": "LRCX",
-    "NOW.US": "NOW",
-    "PLTR.US": "PLTR",
-    "PANW.US": "PANW",
-    "CRWD.US": "CRWD",
-    "UBER.US": "UBER",
-    "ABNB.US": "ABNB",
-    "COST.US": "COST",
-    "WMT.US": "WMT",
-    "JPM.US": "JPM",
-    "V.US": "V",
-    "MA.US": "MA",
-    "NFLX.US": "NFLX",
-
-    # ================= ITALIA =================
-    "ENI.MI": "ENI",
-    "ENEL.MI": "ENEL",
-    "ISP.MI": "INTESA",
-    "UCG.MI": "UNICREDIT",
-    "STLAM.MI": "STELLANTIS",
-    "RACE.MI": "FERRARI",
-    "LDO.MI": "LEONARDO",
-    "STM.MI": "STM",
-    "TIT.MI": "TELECOM ITALIA",
-    "G.MI": "GENERALI",
-    "MONC.MI": "MONCLER",
-    "PRY.MI": "PRYSMIAN",
-    "ERG.MI": "ERG",
-    "BAMI.MI": "BANCO BPM",
-    "BMED.MI": "MEDIOBANCA",
-
-    # ================= GERMANIA =================
-    "SAP.DE": "SAP",
-    "SIE.DE": "SIEMENS",
-    "ALV.DE": "ALLIANZ",
-    "DTE.DE": "DEUTSCHE TELEKOM",
-    "MBG.DE": "MERCEDES",
-    "BMW.DE": "BMW",
-    "VOW3.DE": "VOLKSWAGEN",
-    "AIR.DE": "AIRBUS",
-    "ADS.DE": "ADIDAS",
-    "DBK.DE": "DEUTSCHE BANK",
-    "RWE.DE": "RWE",
-
-    # ================= FRANCIA =================
-    "MC.PA": "LVMH",
-    "OR.PA": "L'OREAL",
-    "TTE.PA": "TOTALENERGIES",
-    "AIR.PA": "AIRBUS",
-    "SU.PA": "SCHNEIDER",
-    "SAN.PA": "SANOFI",
-    "BNP.PA": "BNP PARIBAS",
-    "AI.PA": "AIR LIQUIDE",
-    "DG.PA": "VINCI",
-    "CAP.PA": "CAPGEMINI",
-
-    # ================= SPAGNA =================
-    "IBE.MC": "IBERDROLA",
-    "ITX.MC": "INDITEX",
-    "SAN.MC": "SANTANDER",
-    "BBVA.MC": "BBVA",
-    "REP.MC": "REPSOL",
-    "TEF.MC": "TELEFONICA",
-
-    # ================= OLANDA =================
-    "ASML.AS": "ASML",
-    "ADYEN.AS": "ADYEN",
-    "INGA.AS": "ING",
-    "PHIA.AS": "PHILIPS",
-
-    # ================= UK =================
-    "SHEL.L": "SHELL",
-    "AZN.L": "ASTRAZENECA",
-    "HSBA.L": "HSBC",
-    "BP.L": "BP",
-    "ULVR.L": "UNILEVER",
-    "RIO.L": "RIO TINTO",
-
-    # ================= SVIZZERA =================
-    "NESN.SW": "NESTLE",
-    "NOVN.SW": "NOVARTIS",
-    "ROG.SW": "ROCHE",
-    "UBSG.SW": "UBS",
-    "ABBN.SW": "ABB",
-}
+NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
+OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt"
 
 
-# ------------------------------------------------------------
-# DOWNLOAD DATA
-# ------------------------------------------------------------
+# ============================================================
+# DOWNLOAD
+# ============================================================
+
+def download_text(url):
+
+    response = requests.get(
+        url,
+        headers={"User-Agent": USER_AGENT},
+        timeout=30
+    )
+
+    response.raise_for_status()
+
+    return response.text
+
+
+# ============================================================
+# NORMALIZE SYMBOL
+# ============================================================
+
+def normalize_symbol(symbol):
+
+    symbol = symbol.strip()
+
+    # Yahoo Finance commonly uses "-" for share classes
+    symbol = symbol.replace("/", "-")
+    symbol = symbol.replace(".", "-")
+
+    return symbol
+
+
+# ============================================================
+# BUILD USA STOCK UNIVERSE
+# ============================================================
+
+def get_us_universe():
+
+    universe = {}
+
+    print()
+    print("=" * 70)
+    print("BUILDING USA STOCK UNIVERSE")
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # NASDAQ
+    # --------------------------------------------------------
+
+    print("Downloading NASDAQ listings...")
+
+    text = download_text(NASDAQ_LISTED_URL)
+
+    lines = text.strip().splitlines()
+
+    reader = csv.DictReader(
+        lines,
+        delimiter="|"
+    )
+
+    for row in reader:
+
+        symbol = row.get("Symbol", "").strip()
+        name = row.get("Security Name", "").strip()
+        etf = row.get("ETF", "").strip().upper()
+        test_issue = row.get("Test Issue", "").strip().upper()
+        financial_status = row.get("Financial Status", "").strip().upper()
+
+        if not symbol:
+            continue
+
+        if etf == "Y":
+            continue
+
+        if test_issue == "Y":
+            continue
+
+        if financial_status in ["D", "E", "Q"]:
+            continue
+
+        # Exclude obvious non-common securities
+        bad_words = [
+            "WARRANT",
+            "RIGHT",
+            "UNIT",
+            "NOTE",
+            "DEBENTURE",
+            "PREFERRED"
+        ]
+
+        if any(word in name.upper() for word in bad_words):
+            continue
+
+        yahoo_symbol = normalize_symbol(symbol)
+
+        universe[yahoo_symbol] = name
+
+    print(f"NASDAQ stocks found: {len(universe)}")
+
+    # --------------------------------------------------------
+    # NYSE / NYSE AMERICAN
+    # --------------------------------------------------------
+
+    print("Downloading NYSE listings...")
+
+    text = download_text(OTHER_LISTED_URL)
+
+    lines = text.strip().splitlines()
+
+    reader = csv.DictReader(
+        lines,
+        delimiter="|"
+    )
+
+    before = len(universe)
+
+    for row in reader:
+
+        symbol = row.get("ACT Symbol", "").strip()
+        name = row.get("Security Name", "").strip()
+        exchange = row.get("Exchange", "").strip().upper()
+        etf = row.get("ETF", "").strip().upper()
+        test_issue = row.get("Test Issue", "").strip().upper()
+
+        # N = NYSE
+        # A = NYSE American
+        if exchange not in ["N", "A"]:
+            continue
+
+        if not symbol:
+            continue
+
+        if etf == "Y":
+            continue
+
+        if test_issue == "Y":
+            continue
+
+        bad_words = [
+            "WARRANT",
+            "RIGHT",
+            "UNIT",
+            "NOTE",
+            "DEBENTURE",
+            "PREFERRED"
+        ]
+
+        if any(word in name.upper() for word in bad_words):
+            continue
+
+        yahoo_symbol = normalize_symbol(symbol)
+
+        universe[yahoo_symbol] = name
+
+    print(f"NYSE/NYSE American stocks added: {len(universe) - before}")
+
+    print(f"TOTAL USA STOCK UNIVERSE: {len(universe)}")
+
+    return universe
+
+
+# ============================================================
+# DOWNLOAD HISTORICAL DATA
+# ============================================================
 
 def get_prices(symbol):
 
@@ -134,6 +193,7 @@ def get_prices(symbol):
     )
 
     try:
+
         response = requests.get(
             url,
             headers={"User-Agent": USER_AGENT},
@@ -144,8 +204,10 @@ def get_prices(symbol):
 
         data = response.json()["chart"]["result"][0]
 
-        closes = data["indicators"]["quote"][0]["close"]
-        volumes = data["indicators"]["quote"][0]["volume"]
+        quote = data["indicators"]["quote"][0]
+
+        closes = quote["close"]
+        volumes = quote["volume"]
 
         prices = []
         vols = []
@@ -158,21 +220,21 @@ def get_prices(symbol):
             if volume is not None:
                 vols.append(float(volume))
 
-        if len(prices) < 210:
+        if len(prices) < MIN_HISTORY:
             return None
 
         return prices, vols
 
     except Exception as e:
 
-        print(f"ERRORE {symbol}: {e}")
+        print(f"DATA ERROR {symbol}: {e}")
 
         return None
 
 
-# ------------------------------------------------------------
-# SIMPLE MOVING AVERAGE
-# ------------------------------------------------------------
+# ============================================================
+# SMA
+# ============================================================
 
 def sma(values, period):
 
@@ -182,9 +244,9 @@ def sma(values, period):
     return sum(values[-period:]) / period
 
 
-# ------------------------------------------------------------
+# ============================================================
 # RSI
-# ------------------------------------------------------------
+# ============================================================
 
 def calculate_rsi(prices, period=14):
 
@@ -216,20 +278,36 @@ def calculate_rsi(prices, period=14):
     return 100 - (100 / (1 + rs))
 
 
-# ------------------------------------------------------------
-# ANALYSIS
-# ------------------------------------------------------------
+# ============================================================
+# ANALYZE STOCK
+# ============================================================
 
 def analyze(symbol, name):
 
-    result = get_prices(symbol)
+    data = get_prices(symbol)
 
-    if result is None:
+    if data is None:
         return None
 
-    prices, volumes = result
+    prices, volumes = data
 
     price = prices[-1]
+
+    # --------------------------------------------------------
+    # BASIC FILTER
+    # --------------------------------------------------------
+
+    if price < MIN_PRICE:
+        return None
+
+    avg_volume = statistics.mean(volumes[-20:])
+
+    if avg_volume < MIN_AVG_VOLUME:
+        return None
+
+    # --------------------------------------------------------
+    # INDICATORS
+    # --------------------------------------------------------
 
     sma20 = sma(prices, 20)
     sma50 = sma(prices, 50)
@@ -237,99 +315,95 @@ def analyze(symbol, name):
 
     rsi = calculate_rsi(prices)
 
-    # Momentum
     momentum_1m = ((price / prices[-22]) - 1) * 100
     momentum_3m = ((price / prices[-66]) - 1) * 100
 
-    # Volume
-    avg_volume = statistics.mean(volumes[-20:])
-    current_volume = volumes[-1]
-
     volume_ratio = (
-        current_volume / avg_volume
+        volumes[-1] / avg_volume
         if avg_volume > 0
         else 0
     )
 
-    # 20 day breakout
     previous_20_high = max(prices[-21:-1])
 
     breakout = price > previous_20_high
 
-    # --------------------------------------------------------
+    distance_sma200 = (
+        ((price / sma200) - 1) * 100
+    )
+
+    # ========================================================
     # SCORE
-    # --------------------------------------------------------
+    # ========================================================
 
     score = 0
     signals = []
 
-    # PRICE > SMA20
+    # 1
     if price > sma20:
         score += 1
         signals.append("Price>SMA20")
 
-    # SMA20 > SMA50
+    # 2
     if sma20 > sma50:
         score += 1
         signals.append("SMA20>SMA50")
 
-    # SMA50 > SMA200
+    # 3
     if sma50 > sma200:
         score += 1
         signals.append("SMA50>SMA200")
 
-    # PRICE > SMA200
+    # 4
     if price > sma200:
         score += 1
-        signals.append("Long-term trend")
+        signals.append("Above SMA200")
 
-    # Momentum 1 month
+    # 5
     if momentum_1m > 3:
         score += 1
         signals.append("Momentum 1M")
 
-    # Momentum 3 months
+    # 6
     if momentum_3m > 5:
         score += 1
         signals.append("Momentum 3M")
 
-    # RSI
-    if 50 <= rsi <= 70:
+    # 7
+    if rsi is not None and 50 <= rsi <= 70:
         score += 1
-        signals.append("RSI healthy")
+        signals.append("Healthy RSI")
 
-    # Volume
+    # 8
     if volume_ratio >= 1.5:
         score += 1
         signals.append("Volume spike")
 
-    # Breakout
+    # 9
     if breakout:
         score += 1
         signals.append("20D breakout")
 
-    # Distance from SMA200
-    distance_sma200 = ((price / sma200) - 1) * 100
-
+    # 10
     if 0 < distance_sma200 < 25:
         score += 1
         signals.append("Healthy distance")
 
-    # --------------------------------------------------------
+    # ========================================================
     # CLASSIFICATION
-    # --------------------------------------------------------
+    # ========================================================
 
     if score >= 8:
-        signal = "🔥 STRONG ENTRY"
+        signal = "STRONG ENTRY"
 
     elif score >= 6:
-        signal = "🟢 ENTRY WATCH"
+        signal = "ENTRY WATCH"
 
     elif score >= 4:
-        signal = "🟡 WATCH"
+        signal = "WATCH"
 
     else:
-        signal = "🔴 AVOID"
+        signal = "AVOID"
 
     return {
         "symbol": symbol,
@@ -349,75 +423,155 @@ def analyze(symbol, name):
     }
 
 
-# ------------------------------------------------------------
-# MAIN SCANNER
-# ------------------------------------------------------------
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
+    start = datetime.now(timezone.utc)
+
     print()
     print("=" * 70)
-    print("HULKTRADER ENTRY RADAR V2")
-    print(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+    print("HULKTRADER USA ENTRY RADAR")
+    print(start.strftime("%Y-%m-%d %H:%M:%S UTC"))
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # BUILD UNIVERSE
+    # --------------------------------------------------------
+
+    universe = get_us_universe()
+
+    print()
+    print("=" * 70)
+    print("STARTING TECHNICAL SCAN")
     print("=" * 70)
 
     results = []
 
-    for symbol, name in STOCKS.items():
+    total = len(universe)
 
-        print(f"Analizzo {symbol} ...")
+    for counter, (symbol, name) in enumerate(
+        universe.items(),
+        start=1
+    ):
 
-        data = analyze(symbol, name)
+        print(
+            f"[{counter}/{total}] "
+            f"Analizzo {symbol}"
+        )
 
-        if data:
-            results.append(data)
+        result = analyze(symbol, name)
+
+        if result is not None:
+            results.append(result)
+
+    # --------------------------------------------------------
+    # SORT
+    # --------------------------------------------------------
 
     results.sort(
         key=lambda x: x["score"],
         reverse=True
     )
 
+    # --------------------------------------------------------
+    # RESULTS
+    # --------------------------------------------------------
+
     print()
     print("=" * 70)
-    print("ENTRY RADAR")
+    print("HULKTRADER ENTRY RADAR")
     print("=" * 70)
 
-    for r in results:
+    for result in results[:50]:
 
         print(
-            f"{r['signal']:18} "
-            f"{r['symbol']:12} "
-            f"{r['price']:9.2f} "
-            f"SCORE {r['score']}/10"
+            f"{result['symbol']:10} "
+            f"{result['price']:10.2f} "
+            f"SCORE {result['score']:2}/10 "
+            f"{result['signal']}"
         )
+
+    # --------------------------------------------------------
+    # TOP 20 DETAIL
+    # --------------------------------------------------------
 
     print()
     print("=" * 70)
-    print("TOP 20")
+    print("TOP 20 OPPORTUNITIES")
     print("=" * 70)
 
-    for i, r in enumerate(results[:20], 1):
+    for i, result in enumerate(results[:20], start=1):
 
+        print()
         print(
             f"{i:02d}. "
-            f"{r['symbol']:12} "
-            f"{r['name'][:20]:20} "
-            f"Price {r['price']:9.2f} | "
-            f"RSI {r['rsi']:5.1f} | "
-            f"Score {r['score']}/10"
+            f"{result['symbol']} - "
+            f"{result['name']}"
         )
 
         print(
-            "    "
-            + ", ".join(r["signals"])
+            f"    Price: {result['price']:.2f}"
         )
+
+        print(
+            f"    RSI: {result['rsi']:.1f}"
+        )
+
+        print(
+            f"    Momentum 1M: "
+            f"{result['momentum_1m']:.2f}%"
+        )
+
+        print(
+            f"    Momentum 3M: "
+            f"{result['momentum_3m']:.2f}%"
+        )
+
+        print(
+            f"    Score: "
+            f"{result['score']}/10"
+        )
+
+        print(
+            f"    Signal: "
+            f"{result['signal']}"
+        )
+
+        print(
+            "    Signals: "
+            + ", ".join(result["signals"])
+        )
+
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
+
+    elapsed = (
+        datetime.now(timezone.utc) - start
+    ).total_seconds()
 
     print()
     print("=" * 70)
-    print(f"Titoli analizzati: {len(results)}")
+    print("SCAN COMPLETE")
+    print("=" * 70)
+
+    print(
+        f"Universe: {len(universe)}"
+    )
+
+    print(
+        f"Valid stocks: {len(results)}"
+    )
+
+    print(
+        f"Execution time: {elapsed:.1f} seconds"
+    )
+
     print("=" * 70)
 
 
 if __name__ == "__main__":
     main()
-
