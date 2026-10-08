@@ -3,6 +3,7 @@ import statistics
 import csv
 import io
 import os
+import math
 from datetime import datetime, timezone
 
 # EODHD API KEY
@@ -216,6 +217,8 @@ def get_prices(symbol):
 
         prices = []
         vols = []
+        highs = []
+        lows = []
 
         for row in data:
 
@@ -224,12 +227,21 @@ def get_prices(symbol):
             if close is None:
                 close = row.get("close")
 
+            high = row.get("high")
+            low = row.get("low")
             volume = row.get("volume")
 
-            if close is None or volume is None:
+            if (
+                close is None
+                or high is None
+                or low is None
+                or volume is None
+            ):
                 continue
 
             prices.append(float(close))
+            highs.append(float(high))
+            lows.append(float(low))
             vols.append(float(volume))
 
         if len(prices) < MIN_HISTORY:
@@ -239,7 +251,7 @@ def get_prices(symbol):
             )
             return None
 
-        return prices, vols
+        return prices, vols, highs, lows
 
     except Exception as e:
 
@@ -294,17 +306,43 @@ def calculate_rsi(prices, period=14):
 
 
 # ============================================================
+# ATR
+# ============================================================
+
+def calculate_atr(prices, highs, lows, period=20):
+
+    if len(prices) < period + 1:
+        return None
+
+    true_ranges = []
+
+    for i in range(1, len(prices)):
+
+        previous_close = prices[i - 1]
+
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - previous_close),
+            abs(lows[i] - previous_close)
+        )
+
+        true_ranges.append(tr)
+
+    return statistics.mean(true_ranges[-period:])
+
+
+# ============================================================
 # ANALYZE STOCK
 # ============================================================
 
-def analyze(symbol, name):
+def analyze(symbol, name, benchmark_prices=None):
 
     data = get_prices(symbol)
 
     if data is None:
         return None
 
-    prices, volumes = data
+    prices, volumes, highs, lows = data
 
     price = prices[-1]
 
@@ -339,82 +377,171 @@ def analyze(symbol, name):
         else 0
     )
 
-    previous_20_high = max(prices[-21:-1])
+    # --------------------------------------------------------
+    # TURTLE INDICATORS
+    # --------------------------------------------------------
 
-    breakout = price > previous_20_high
+    previous_20_high = max(prices[-21:-1])
+    previous_55_high = max(prices[-56:-1])
+
+    breakout_20 = price > previous_20_high
+    breakout_55 = price > previous_55_high
+
+    atr20 = calculate_atr(
+        prices,
+        highs,
+        lows,
+        20
+    )
+
+    atr_pct = (
+        (atr20 / price) * 100
+        if atr20 is not None and price > 0
+        else None
+    )
 
     distance_sma200 = (
         ((price / sma200) - 1) * 100
     )
 
+    # --------------------------------------------------------
+    # WEINSTEIN STAGE ANALYSIS
+    # --------------------------------------------------------
+    # 30-week MA is approximated from 150 trading days.
+    # Slope is measured against the value ~4 weeks earlier.
+
+    sma30w = sma(prices, 150)
+
+    sma30w_4w_ago = (
+        sma(prices[:-20], 150)
+        if len(prices) >= 170
+        else None
+    )
+
+    stage2_ma_rising = (
+        sma30w is not None
+        and sma30w_4w_ago is not None
+        and sma30w > sma30w_4w_ago
+    )
+
+    price_above_30w = (
+        sma30w is not None
+        and price > sma30w
+    )
+
+    previous_30w_high = (
+        max(prices[-151:-1])
+        if len(prices) >= 151
+        else None
+    )
+
+    stage2_breakout = (
+        previous_30w_high is not None
+        and price > previous_30w_high
+    )
+
+    # Relative strength versus SPY over roughly 30 weeks.
+    relative_strength = None
+    relative_strength_positive = False
+
+    if benchmark_prices and len(benchmark_prices) >= 150:
+        stock_return_30w = (
+            (price / prices[-150]) - 1
+        ) * 100
+
+        benchmark_return_30w = (
+            (benchmark_prices[-1] / benchmark_prices[-150]) - 1
+        ) * 100
+
+        relative_strength = (
+            stock_return_30w - benchmark_return_30w
+        )
+
+        relative_strength_positive = relative_strength > 0
+
     # ========================================================
-    # SCORE
+    # TURTLE SCORE — 0 TO 5
     # ========================================================
 
-    score = 0
-    signals = []
+    turtle_score = 0
+    turtle_signals = []
 
-    # 1
-    if price > sma20:
-        score += 1
-        signals.append("Price>SMA20")
+    # 1. Turtle System 1: 20-day breakout
+    if breakout_20:
+        turtle_score += 1
+        turtle_signals.append("20D breakout")
 
-    # 2
-    if sma20 > sma50:
-        score += 1
-        signals.append("SMA20>SMA50")
+    # 2. Turtle System 2: 55-day breakout
+    if breakout_55:
+        turtle_score += 1
+        turtle_signals.append("55D breakout")
 
-    # 3
-    if sma50 > sma200:
-        score += 1
-        signals.append("SMA50>SMA200")
-
-    # 4
+    # 3. Long-term trend filter
     if price > sma200:
-        score += 1
-        signals.append("Above SMA200")
+        turtle_score += 1
+        turtle_signals.append("Above SMA200")
 
-    # 5
-    if momentum_1m > 3:
-        score += 1
-        signals.append("Momentum 1M")
+    # 4. Positive momentum
+    if momentum_3m > 0:
+        turtle_score += 1
+        turtle_signals.append("Positive 3M momentum")
 
-    # 6
-    if momentum_3m > 5:
-        score += 1
-        signals.append("Momentum 3M")
-
-    # 7
-    if rsi is not None and 50 <= rsi <= 70:
-        score += 1
-        signals.append("Healthy RSI")
-
-    # 8
-    if volume_ratio >= 1.5:
-        score += 1
-        signals.append("Volume spike")
-
-    # 9
-    if breakout:
-        score += 1
-        signals.append("20D breakout")
-
-    # 10
-    if 0 < distance_sma200 < 25:
-        score += 1
-        signals.append("Healthy distance")
+    # 5. Volatility in a usable range
+    if atr_pct is not None and 1.0 <= atr_pct <= 8.0:
+        turtle_score += 1
+        turtle_signals.append("Healthy ATR")
 
     # ========================================================
-    # CLASSIFICATION
+    # WEINSTEIN SCORE — 0 TO 5
     # ========================================================
 
-    if score >= 8:
+    weinstein_score = 0
+    weinstein_signals = []
+
+    # 1. Price above 30-week moving average
+    if price_above_30w:
+        weinstein_score += 1
+        weinstein_signals.append("Price>30W MA")
+
+    # 2. 30-week moving average rising
+    if stage2_ma_rising:
+        weinstein_score += 1
+        weinstein_signals.append("30W MA rising")
+
+    # 3. Price above long-term trend
+    if price > sma200:
+        weinstein_score += 1
+        weinstein_signals.append("Above SMA200")
+
+    # 4. Breakout from long consolidation / 30-week range
+    if stage2_breakout:
+        weinstein_score += 1
+        weinstein_signals.append("30W breakout")
+
+    # 5. Relative strength versus SPY
+    if relative_strength_positive:
+        weinstein_score += 1
+        weinstein_signals.append("Relative strength")
+
+    # ========================================================
+    # FINAL SCORE — 0 TO 10
+    # ========================================================
+
+    score = turtle_score + weinstein_score
+
+    signals = (
+        ["TURTLE: " + s for s in turtle_signals]
+        + ["WEINSTEIN: " + s for s in weinstein_signals]
+    )
+
+    # Strong entry requires both theories to agree.
+    if turtle_score >= 4 and weinstein_score >= 4:
         signal = "STRONG ENTRY"
 
-    elif score >= 6:
+    elif score >= 7 and turtle_score >= 3 and weinstein_score >= 3:
         signal = "ENTRY WATCH"
 
-    elif score >= 4:
+    elif score >= 5:
         signal = "WATCH"
 
     else:
@@ -431,10 +558,22 @@ def analyze(symbol, name):
         "momentum_1m": momentum_1m,
         "momentum_3m": momentum_3m,
         "volume_ratio": volume_ratio,
-        "breakout": breakout,
+        "breakout": breakout_20,
+        "breakout_20": breakout_20,
+        "breakout_55": breakout_55,
+        "atr20": atr20,
+        "atr_pct": atr_pct,
+        "sma30w": sma30w,
+        "stage2_ma_rising": stage2_ma_rising,
+        "stage2_breakout": stage2_breakout,
+        "relative_strength": relative_strength,
+        "turtle_score": turtle_score,
+        "weinstein_score": weinstein_score,
         "score": score,
         "signal": signal,
-        "signals": signals
+        "signals": signals,
+        "turtle_signals": turtle_signals,
+        "weinstein_signals": weinstein_signals
     }
 
 
@@ -458,6 +597,17 @@ def main():
 
     universe = get_us_universe()
 
+    # --------------------------------------------------------
+    # MARKET BENCHMARK FOR WEINSTEIN RELATIVE STRENGTH
+    # --------------------------------------------------------
+
+    benchmark_data = get_prices("SPY")
+    benchmark_prices = (
+        benchmark_data[0]
+        if benchmark_data is not None
+        else None
+    )
+
     print()
     print("=" * 70)
     print("STARTING TECHNICAL SCAN")
@@ -477,7 +627,7 @@ def main():
             f"Analizzo {symbol}"
         )
 
-        result = analyze(symbol, name)
+        result = analyze(symbol, name, benchmark_prices)
 
         if result is not None:
             results.append(result)
@@ -505,7 +655,9 @@ def main():
         print(
             f"{result['symbol']:10} "
             f"{result['price']:10.2f} "
-            f"SCORE {result['score']:2}/10 "
+            f"T {result['turtle_score']}/5 "
+            f"W {result['weinstein_score']}/5 "
+            f"TOTAL {result['score']:2}/10 "
             f"{result['signal']}"
         )
 
@@ -546,7 +698,17 @@ def main():
         )
 
         print(
-            f"    Score: "
+            f"    Turtle Score: "
+            f"{result['turtle_score']}/5"
+        )
+
+        print(
+            f"    Weinstein Score: "
+            f"{result['weinstein_score']}/5"
+        )
+
+        print(
+            f"    Total Score: "
             f"{result['score']}/10"
         )
 
@@ -556,9 +718,26 @@ def main():
         )
 
         print(
-            "    Signals: "
-            + ", ".join(result["signals"])
+            "    Turtle: "
+            + ", ".join(result["turtle_signals"])
         )
+
+        print(
+            "    Weinstein: "
+            + ", ".join(result["weinstein_signals"])
+        )
+
+        if result["relative_strength"] is not None:
+            print(
+                f"    Relative Strength vs SPY: "
+                f"{result['relative_strength']:.2f}%"
+            )
+
+        if result["atr_pct"] is not None:
+            print(
+                f"    ATR20: "
+                f"{result['atr_pct']:.2f}%"
+            )
 
     # --------------------------------------------------------
     # SUMMARY
