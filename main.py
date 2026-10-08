@@ -2,8 +2,11 @@ import requests
 import statistics
 import csv
 import io
+import os
 from datetime import datetime, timezone
 
+# EODHD API KEY
+EODHD_API_KEY = os.environ["EODHD_API_KEY"]
 # ============================================================
 # HULKTRADER USA ENTRY RADAR
 # Dynamic NASDAQ + NYSE universe
