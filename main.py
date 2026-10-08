@@ -187,9 +187,12 @@ def get_us_universe():
 def get_prices(symbol):
 
     url = (
-        "https://query1.finance.yahoo.com/v8/finance/chart/"
+        "https://eodhd.com/api/eod/"
         + symbol
-        + "?range=1y&interval=1d&events=history"
+        + "?api_token="
+        + EODHD_API_KEY
+        + "&fmt=json"
+        + "&period=d"
     )
 
     try:
@@ -197,30 +200,40 @@ def get_prices(symbol):
         response = requests.get(
             url,
             headers={"User-Agent": USER_AGENT},
-            timeout=15
+            timeout=20
         )
 
         response.raise_for_status()
 
-        data = response.json()["chart"]["result"][0]
+        data = response.json()
 
-        quote = data["indicators"]["quote"][0]
-
-        closes = quote["close"]
-        volumes = quote["volume"]
+        if not isinstance(data, list):
+            print(f"DATA ERROR {symbol}: invalid response")
+            return None
 
         prices = []
         vols = []
 
-        for price, volume in zip(closes, volumes):
+        for row in data:
 
-            if price is not None:
-                prices.append(float(price))
+            close = row.get("adjusted_close")
 
-            if volume is not None:
-                vols.append(float(volume))
+            if close is None:
+                close = row.get("close")
+
+            volume = row.get("volume")
+
+            if close is None or volume is None:
+                continue
+
+            prices.append(float(close))
+            vols.append(float(volume))
 
         if len(prices) < MIN_HISTORY:
+            print(
+                f"DATA ERROR {symbol}: "
+                f"only {len(prices)} days"
+            )
             return None
 
         return prices, vols
@@ -230,7 +243,6 @@ def get_prices(symbol):
         print(f"DATA ERROR {symbol}: {e}")
 
         return None
-
 
 # ============================================================
 # SMA
