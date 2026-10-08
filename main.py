@@ -534,18 +534,39 @@ def analyze(symbol, name, benchmark_prices=None):
         + ["WEINSTEIN: " + s for s in weinstein_signals]
     )
 
-    # Strong entry requires both theories to agree.
-    if turtle_score >= 4 and weinstein_score >= 4:
-        signal = "STRONG ENTRY"
+    # --------------------------------------------------------
+    # ENTRY STATUS
+    # Quality score and entry timing are deliberately separated.
+    # A 9-10/10 score means the trend quality is excellent,
+    # but an overextended RSI can make the immediate entry risky.
+    # --------------------------------------------------------
 
-    elif score >= 7 and turtle_score >= 3 and weinstein_score >= 3:
-        signal = "ENTRY WATCH"
+    if score >= 9:
+        if rsi is not None and rsi >= 75:
+            signal = "STRONG TREND - WAIT"
+            entry_status = "WAIT FOR PULLBACK"
+        elif rsi is not None and rsi >= 70:
+            signal = "STRONG TREND - CAUTION"
+            entry_status = "CAUTION"
+        else:
+            signal = "STRONG ENTRY"
+            entry_status = "ENTRY NOW"
+
+    elif score >= 7:
+        if rsi is not None and rsi >= 75:
+            signal = "ENTRY WATCH - EXTENDED"
+            entry_status = "WAIT FOR PULLBACK"
+        else:
+            signal = "ENTRY WATCH"
+            entry_status = "WATCH FOR ENTRY"
 
     elif score >= 5:
         signal = "WATCH"
+        entry_status = "WAIT"
 
     else:
         signal = "AVOID"
+        entry_status = "NO ENTRY"
 
     return {
         "symbol": symbol,
@@ -571,6 +592,7 @@ def analyze(symbol, name, benchmark_prices=None):
         "weinstein_score": weinstein_score,
         "score": score,
         "signal": signal,
+        "entry_status": entry_status,
         "signals": signals,
         "turtle_signals": turtle_signals,
         "weinstein_signals": weinstein_signals
@@ -715,6 +737,11 @@ def main():
         print(
             f"    Signal: "
             f"{result['signal']}"
+        )
+
+        print(
+            f"    Entry Status: "
+            f"{result['entry_status']}"
         )
 
         print(
