@@ -27,6 +27,183 @@ OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt"
 # DOWNLOAD
 # ============================================================
 
+# ============================================================
+# TELEGRAM REPORT
+# ============================================================
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+
+def send_telegram_message(message):
+
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("TELEGRAM: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
+        return False
+
+    url = (
+        "https://api.telegram.org/bot"
+        + TELEGRAM_BOT_TOKEN
+        + "/sendMessage"
+    )
+
+    try:
+        response = requests.post(
+            url,
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "disable_web_page_preview": True
+            },
+            timeout=15
+        )
+
+        response.raise_for_status()
+
+        payload = response.json()
+
+        if not payload.get("ok"):
+            print(f"TELEGRAM ERROR: {payload}")
+            return False
+
+        return True
+
+    except Exception as e:
+        print(f"TELEGRAM ERROR: {e}")
+        return False
+
+
+def send_telegram_report(results, universe_size, elapsed):
+
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("TELEGRAM: report not sent - configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+        return
+
+    # --------------------------------------------------------
+    # EARLY TREND candidates
+    # --------------------------------------------------------
+
+    early_candidates = [
+        r for r in results
+        if r["signal"] in ("EARLY STRONG TREND", "EARLY TREND WATCH")
+    ]
+
+    early_candidates.sort(
+        key=lambda x: (
+            x["early_score"],
+            x["score"],
+            x["turtle_early_score"],
+            x["weinstein_early_score"]
+        ),
+        reverse=True
+    )
+
+    confirmed = [
+        r for r in results
+        if r["score"] >= 7
+    ]
+
+    confirmed.sort(
+        key=lambda x: (x["score"], -x["rsi"] if x["rsi"] is not None else 0),
+        reverse=True
+    )
+
+    lines = []
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines.append("HULKTRADER ENTRY RADAR")
+    lines.append("USA | " + now)
+    lines.append("")
+    lines.append(f"Universe: {universe_size:,}")
+    lines.append(f"Valid stocks: {len(results):,}")
+    lines.append(f"Scan time: {elapsed / 60:.1f} min")
+    lines.append("")
+
+    # --------------------------------------------------------
+    # EARLY TREND
+    # --------------------------------------------------------
+
+    lines.append("EARLY TREND / PRE-BREAKOUT")
+    lines.append(f"Candidates: {len(early_candidates)}")
+
+    if early_candidates:
+        for i, r in enumerate(early_candidates[:10], start=1):
+            d20 = (
+                f"{r['distance_to_20d_high']:.1f}%"
+                if r["distance_to_20d_high"] is not None
+                else "n/a"
+            )
+            d55 = (
+                f"{r['distance_to_55d_high']:.1f}%"
+                if r["distance_to_55d_high"] is not None
+                else "n/a"
+            )
+            d30 = (
+                f"{r['distance_to_30w_high']:.1f}%"
+                if r["distance_to_30w_high"] is not None
+                else "n/a"
+            )
+
+            lines.append(
+                f"{i}. {r['symbol']} ${r['price']:.2f} | "
+                f"Early {r['early_score']}/10 | "
+                f"T {r['turtle_early_score']}/5 W {r['weinstein_early_score']}/5"
+            )
+            lines.append(f"   {r['signal']} | {r['entry_status']}")
+            lines.append(
+                f"   20D {d20} | 55D {d55} | 30W {d30} | RSI {r['rsi']:.1f}"
+                if r['rsi'] is not None
+                else f"   20D {d20} | 55D {d55} | 30W {d30} | RSI n/a"
+            )
+    else:
+        lines.append("No strong early candidates in this scan.")
+
+    lines.append("")
+
+    # --------------------------------------------------------
+    # CONFIRMED TREND
+    # --------------------------------------------------------
+
+    lines.append("CONFIRMED TREND / BREAKOUT")
+    lines.append("")
+
+    if confirmed:
+        for i, r in enumerate(confirmed[:10], start=1):
+            rsi_text = f"RSI {r['rsi']:.1f}" if r['rsi'] is not None else "RSI n/a"
+            lines.append(
+                f"{i}. {r['symbol']} ${r['price']:.2f} | "
+                f"{r['score']}/10 | T {r['turtle_score']}/5 W {r['weinstein_score']}/5"
+            )
+            lines.append(f"   {r['signal']} | {r['entry_status']} | {rsi_text}")
+    else:
+        lines.append("No confirmed candidates with score >= 7.")
+
+    lines.append("")
+    lines.append("HulkTrader: Turtle + Weinstein + Early Trend")
+
+    message = "\n".join(lines)
+
+    # Telegram sendMessage has a message-size limit; split safely.
+    max_chars = 3900
+    chunks = []
+    current = ""
+
+    for block in message.split("\n\n"):
+        candidate = block if not current else current + "\n\n" + block
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            current = block
+
+    if current:
+        chunks.append(current)
+
+    for chunk in chunks:
+        send_telegram_message(chunk)
+
+
 def download_text(url):
 
     response = requests.get(
@@ -405,6 +582,76 @@ def analyze(symbol, name, benchmark_prices=None):
     )
 
     # --------------------------------------------------------
+    # EARLY TREND / PRE-BREAKOUT DETECTION
+    # --------------------------------------------------------
+    # The classic Turtle trigger is a breakout. That is useful,
+    # but it is deliberately late. We therefore keep the strict
+    # Turtle score AND calculate a separate pre-breakout setup.
+    #
+    # The setup looks for price approaching the breakout level,
+    # rising short/medium-term averages and positive momentum.
+    # It does NOT call a stock a breakout before the breakout.
+
+    sma20_1m_ago = (
+        sma(prices[:-20], 20)
+        if len(prices) >= 40
+        else None
+    )
+
+    sma50_1m_ago = (
+        sma(prices[:-20], 50)
+        if len(prices) >= 70
+        else None
+    )
+
+    sma20_rising = (
+        sma20 is not None
+        and sma20_1m_ago is not None
+        and sma20 > sma20_1m_ago
+    )
+
+    sma50_rising = (
+        sma50 is not None
+        and sma50_1m_ago is not None
+        and sma50 > sma50_1m_ago
+    )
+
+    distance_to_20d_high = (
+        ((previous_20_high / price) - 1) * 100
+        if price > 0
+        else None
+    )
+
+    distance_to_55d_high = (
+        ((previous_55_high / price) - 1) * 100
+        if price > 0
+        else None
+    )
+
+    range_20d_pct = (
+        ((max(prices[-20:]) - min(prices[-20:])) / price) * 100
+        if price > 0
+        else None
+    )
+
+    # A tight range near the top of the recent range is a useful
+    # early warning for a possible breakout, not a confirmation.
+    near_20d_breakout = (
+        distance_to_20d_high is not None
+        and distance_to_20d_high <= 3.0
+    )
+
+    near_55d_breakout = (
+        distance_to_55d_high is not None
+        and distance_to_55d_high <= 7.0
+    )
+
+    tight_base = (
+        range_20d_pct is not None
+        and range_20d_pct <= 15.0
+    )
+
+    # --------------------------------------------------------
     # WEINSTEIN STAGE ANALYSIS
     # --------------------------------------------------------
     # 30-week MA is approximated from 150 trading days.
@@ -524,21 +771,97 @@ def analyze(symbol, name, benchmark_prices=None):
         weinstein_signals.append("Relative strength")
 
     # ========================================================
+    # EARLY TURTLE SETUP — 0 TO 5
+    # ========================================================
+    # These are pre-breakout conditions. They are intentionally
+    # separate from the classic Turtle breakout score.
+
+    turtle_early_score = 0
+    turtle_early_signals = []
+
+    if near_20d_breakout and not breakout_20:
+        turtle_early_score += 1
+        turtle_early_signals.append("Within 3% of 20D breakout")
+
+    if near_55d_breakout and not breakout_55:
+        turtle_early_score += 1
+        turtle_early_signals.append("Within 7% of 55D breakout")
+
+    if sma20_rising:
+        turtle_early_score += 1
+        turtle_early_signals.append("SMA20 rising")
+
+    if price > sma50:
+        turtle_early_score += 1
+        turtle_early_signals.append("Above SMA50")
+
+    if momentum_3m > 5:
+        turtle_early_score += 1
+        turtle_early_signals.append("Positive 3M momentum")
+
+    # ========================================================
+    # EARLY WEINSTEIN SETUP — 0 TO 5
+    # ========================================================
+    # Weinstein's Stage 2 is fundamentally a trend condition.
+    # We also look for price close to the 30-week breakout level
+    # and a strengthening intermediate trend.
+
+    weinstein_early_score = 0
+    weinstein_early_signals = []
+
+    if price_above_30w:
+        weinstein_early_score += 1
+        weinstein_early_signals.append("Price>30W MA")
+
+    if stage2_ma_rising:
+        weinstein_early_score += 1
+        weinstein_early_signals.append("30W MA rising")
+
+    if sma50_rising:
+        weinstein_early_score += 1
+        weinstein_early_signals.append("SMA50 rising")
+
+    if relative_strength_positive:
+        weinstein_early_score += 1
+        weinstein_early_signals.append("Relative strength improving")
+
+    distance_to_30w_high = (
+        ((previous_30w_high / price) - 1) * 100
+        if previous_30w_high is not None and price > 0
+        else None
+    )
+
+    near_30w_breakout = (
+        distance_to_30w_high is not None
+        and distance_to_30w_high <= 8.0
+    )
+
+    if near_30w_breakout and not stage2_breakout:
+        weinstein_early_score += 1
+        weinstein_early_signals.append("Within 8% of 30W breakout")
+
+    # ========================================================
     # FINAL SCORE — 0 TO 10
     # ========================================================
 
     score = turtle_score + weinstein_score
+    early_score = turtle_early_score + weinstein_early_score
 
     signals = (
         ["TURTLE: " + s for s in turtle_signals]
         + ["WEINSTEIN: " + s for s in weinstein_signals]
     )
 
+    early_signals = (
+        ["TURTLE EARLY: " + s for s in turtle_early_signals]
+        + ["WEINSTEIN EARLY: " + s for s in weinstein_early_signals]
+    )
+
     # --------------------------------------------------------
     # ENTRY STATUS
-    # Quality score and entry timing are deliberately separated.
-    # A 9-10/10 score means the trend quality is excellent,
-    # but an overextended RSI can make the immediate entry risky.
+    # Trend quality and entry timing are deliberately separated.
+    # EARLY TREND SETUP is used when the stock is building the
+    # conditions for a breakout but has not broken out yet.
     # --------------------------------------------------------
 
     if score >= 9:
@@ -552,6 +875,17 @@ def analyze(symbol, name, benchmark_prices=None):
             signal = "STRONG ENTRY"
             entry_status = "ENTRY NOW"
 
+    elif (
+        early_score >= 8
+        and turtle_score >= 2
+        and weinstein_score >= 3
+        and not breakout_20
+        and not breakout_55
+        and not stage2_breakout
+    ):
+        signal = "EARLY STRONG TREND"
+        entry_status = "PRE-BREAKOUT WATCH"
+
     elif score >= 7:
         if rsi is not None and rsi >= 75:
             signal = "ENTRY WATCH - EXTENDED"
@@ -559,6 +893,10 @@ def analyze(symbol, name, benchmark_prices=None):
         else:
             signal = "ENTRY WATCH"
             entry_status = "WATCH FOR ENTRY"
+
+    elif early_score >= 6 and tight_base:
+        signal = "EARLY TREND WATCH"
+        entry_status = "WATCH BREAKOUT"
 
     elif score >= 5:
         signal = "WATCH"
@@ -588,14 +926,26 @@ def analyze(symbol, name, benchmark_prices=None):
         "stage2_ma_rising": stage2_ma_rising,
         "stage2_breakout": stage2_breakout,
         "relative_strength": relative_strength,
+        "distance_to_20d_high": distance_to_20d_high,
+        "distance_to_55d_high": distance_to_55d_high,
+        "distance_to_30w_high": distance_to_30w_high,
+        "range_20d_pct": range_20d_pct,
+        "sma20_rising": sma20_rising,
+        "sma50_rising": sma50_rising,
         "turtle_score": turtle_score,
         "weinstein_score": weinstein_score,
         "score": score,
+        "turtle_early_score": turtle_early_score,
+        "weinstein_early_score": weinstein_early_score,
+        "early_score": early_score,
         "signal": signal,
         "entry_status": entry_status,
         "signals": signals,
+        "early_signals": early_signals,
         "turtle_signals": turtle_signals,
-        "weinstein_signals": weinstein_signals
+        "weinstein_signals": weinstein_signals,
+        "turtle_early_signals": turtle_early_signals,
+        "weinstein_early_signals": weinstein_early_signals
     }
 
 
@@ -659,7 +1009,7 @@ def main():
     # --------------------------------------------------------
 
     results.sort(
-        key=lambda x: x["score"],
+        key=lambda x: (x["score"], x["early_score"]),
         reverse=True
     )
 
@@ -735,6 +1085,13 @@ def main():
         )
 
         print(
+            f"    Early Trend Score: "
+            f"{result['early_score']}/10 "
+            f"(T {result['turtle_early_score']}/5, "
+            f"W {result['weinstein_early_score']}/5)"
+        )
+
+        print(
             f"    Signal: "
             f"{result['signal']}"
         )
@@ -753,6 +1110,12 @@ def main():
             "    Weinstein: "
             + ", ".join(result["weinstein_signals"])
         )
+
+        if result["early_signals"]:
+            print(
+                "    Early setup: "
+                + ", ".join(result["early_signals"])
+            )
 
         if result["relative_strength"] is not None:
             print(
@@ -789,6 +1152,16 @@ def main():
 
     print(
         f"Execution time: {elapsed:.1f} seconds"
+    )
+
+    # --------------------------------------------------------
+    # TELEGRAM REPORT
+    # --------------------------------------------------------
+
+    send_telegram_report(
+        results,
+        len(universe),
+        elapsed
     )
 
     print("=" * 70)
