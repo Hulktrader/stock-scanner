@@ -650,15 +650,19 @@ def analyze(symbol, name, benchmark_prices=None):
         else None
     )
 
+    
     near_20d_breakout = (
         distance_to_20d_high is not None
-        and -3.0 <= distance_to_20d_high <= 0
+        and 0 <= distance_to_20d_high <= 3.0
+        and not breakout_20
     )
 
     near_55d_breakout = (
         distance_to_55d_high is not None
-        and -7.0 <= distance_to_55d_high <= 0
+        and 0 <= distance_to_55d_high <= 7.0
+        and not breakout_55
     )
+
 
     tight_base = (
         range_20d_pct is not None
