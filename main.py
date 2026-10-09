@@ -571,7 +571,10 @@ def analyze(symbol, name, benchmark_prices=None):
     )
 
     rsi = calculate_rsi(prices)
-
+    early_rsi_ok = (
+        rsi is not None
+        and rsi < 70
+    )
     momentum_1m = ((price / prices[-22]) - 1) * 100
     momentum_3m = ((price / prices[-66]) - 1) * 100
 
@@ -916,6 +919,7 @@ def analyze(symbol, name, benchmark_prices=None):
         and not breakout_20
         and not breakout_55
         and not stage2_breakout
+        and early_rsi_ok
         and early_not_extended):
         signal = "EARLY STRONG TREND"
         entry_status = "PRE-BREAKOUT WATCH"
@@ -932,6 +936,7 @@ def analyze(symbol, name, benchmark_prices=None):
     early_score >= 6
     and tight_base
     and early_not_extended
+    and early_rsi_ok
 ):early_score >= 6 and tight_base:
         signal = "EARLY TREND WATCH"
         entry_status = "WATCH BREAKOUT"
