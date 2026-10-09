@@ -616,15 +616,16 @@ def analyze(symbol, name, benchmark_prices=None):
         and sma50 > sma50_1m_ago
     )
 
+    
     distance_to_20d_high = (
-        ((previous_20_high / price) - 1) * 100
-        if price > 0
+        ((price / previous_20_high) - 1) * 100
+        if previous_20_high > 0
         else None
     )
 
     distance_to_55d_high = (
-        ((previous_55_high / price) - 1) * 100
-        if price > 0
+        ((price / previous_55_high) - 1) * 100
+        if previous_55_high > 0
         else None
     )
 
@@ -634,23 +635,20 @@ def analyze(symbol, name, benchmark_prices=None):
         else None
     )
 
-    # A tight range near the top of the recent range is a useful
-    # early warning for a possible breakout, not a confirmation.
     near_20d_breakout = (
         distance_to_20d_high is not None
-        and distance_to_20d_high <= 3.0
+        and -3.0 <= distance_to_20d_high <= 0
     )
 
     near_55d_breakout = (
         distance_to_55d_high is not None
-        and distance_to_55d_high <= 7.0
+        and -7.0 <= distance_to_55d_high <= 0
     )
 
     tight_base = (
         range_20d_pct is not None
         and range_20d_pct <= 15.0
     )
-
     # --------------------------------------------------------
     # WEINSTEIN STAGE ANALYSIS
     # --------------------------------------------------------
@@ -826,15 +824,17 @@ def analyze(symbol, name, benchmark_prices=None):
         weinstein_early_signals.append("Relative strength improving")
 
     distance_to_30w_high = (
-        ((previous_30w_high / price) - 1) * 100
-        if previous_30w_high is not None and price > 0
+        ((price / previous_30w_high) - 1) * 100
+        if previous_30w_high is not None
+        and previous_30w_high > 0
         else None
     )
 
     near_30w_breakout = (
         distance_to_30w_high is not None
-        and distance_to_30w_high <= 8.0
+        and -8.0 <= distance_to_30w_high <= 0
     )
+
 
     if near_30w_breakout and not stage2_breakout:
         weinstein_early_score += 1
@@ -1022,7 +1022,7 @@ def main():
     print("HULKTRADER ENTRY RADAR")
     print("=" * 70)
 
-    for result in results[:50]:
+    for result in results[:10]:
 
         print(
             f"{result['symbol']:10} "
@@ -1039,10 +1039,10 @@ def main():
 
     print()
     print("=" * 70)
-    print("TOP 20 OPPORTUNITIES")
+    print("TOP 10 OPPORTUNITIES")
     print("=" * 70)
 
-    for i, result in enumerate(results[:20], start=1):
+    for i, result in enumerate(results[:10], start=1):
 
         print()
         print(
