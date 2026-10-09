@@ -920,7 +920,8 @@ def analyze(symbol, name, benchmark_prices=None):
         and not breakout_55
         and not stage2_breakout
         and early_rsi_ok
-        and early_not_extended):
+        and early_not_extended
+    ):
         signal = "EARLY STRONG TREND"
         entry_status = "PRE-BREAKOUT WATCH"
 
@@ -933,11 +934,11 @@ def analyze(symbol, name, benchmark_prices=None):
             entry_status = "WATCH FOR ENTRY"
 
     elif (
-    early_score >= 6
-    and tight_base
-    and early_not_extended
-    and early_rsi_ok
-):early_score >= 6 and tight_base:
+        early_score >= 6
+        and tight_base
+        and early_not_extended
+        and early_rsi_ok
+    ):
         signal = "EARLY TREND WATCH"
         entry_status = "WATCH BREAKOUT"
 
