@@ -558,6 +558,18 @@ def analyze(symbol, name, benchmark_prices=None):
     sma50 = sma(prices, 50)
     sma200 = sma(prices, 200)
 
+    
+    distance_to_sma20_pct = (
+        ((price / sma20) - 1) * 100
+        if sma20 is not None and sma20 > 0
+        else None
+    )
+
+    early_not_extended = (
+        distance_to_sma20_pct is not None
+        and distance_to_sma20_pct <= 8.0
+    )
+
     rsi = calculate_rsi(prices)
 
     momentum_1m = ((price / prices[-22]) - 1) * 100
@@ -904,7 +916,7 @@ def analyze(symbol, name, benchmark_prices=None):
         and not breakout_20
         and not breakout_55
         and not stage2_breakout
-    ):
+        and early_not_extended):
         signal = "EARLY STRONG TREND"
         entry_status = "PRE-BREAKOUT WATCH"
 
@@ -916,7 +928,11 @@ def analyze(symbol, name, benchmark_prices=None):
             signal = "ENTRY WATCH"
             entry_status = "WATCH FOR ENTRY"
 
-    elif early_score >= 6 and tight_base:
+    elif (
+    early_score >= 6
+    and tight_base
+    and early_not_extended
+):early_score >= 6 and tight_base:
         signal = "EARLY TREND WATCH"
         entry_status = "WATCH BREAKOUT"
 
