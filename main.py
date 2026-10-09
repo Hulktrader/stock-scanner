@@ -365,11 +365,18 @@ def get_us_universe():
 # DOWNLOAD HISTORICAL DATA
 # ============================================================
 
+
 def get_prices(symbol):
+
+    ticker = (
+        symbol
+        if symbol.endswith(".US")
+        else symbol + ".US"
+    )
 
     url = (
         "https://eodhd.com/api/eod/"
-        + symbol
+        + ticker
         + "?api_token="
         + EODHD_API_KEY
         + "&fmt=json"
@@ -377,7 +384,6 @@ def get_prices(symbol):
     )
 
     try:
-
         response = requests.get(
             url,
             headers={"User-Agent": USER_AGENT},
@@ -385,11 +391,10 @@ def get_prices(symbol):
         )
 
         response.raise_for_status()
-
         data = response.json()
 
         if not isinstance(data, list):
-            print(f"DATA ERROR {symbol}: invalid response")
+            print(f"DATA ERROR {ticker}: invalid response")
             return None
 
         prices = []
@@ -398,12 +403,8 @@ def get_prices(symbol):
         lows = []
 
         for row in data:
-
-            close = row.get("adjusted_close")
-
-            if close is None:
-                close = row.get("close")
-
+            close = row.get("close")
+            adjusted_close = row.get("adjusted_close")
             high = row.get("high")
             low = row.get("low")
             volume = row.get("volume")
@@ -416,14 +417,31 @@ def get_prices(symbol):
             ):
                 continue
 
-            prices.append(float(close))
-            highs.append(float(high))
-            lows.append(float(low))
+            close = float(close)
+            high = float(high)
+            low = float(low)
+
+            if close <= 0:
+                continue
+
+            adjusted_close = (
+                float(adjusted_close)
+                if adjusted_close is not None
+                else close
+            )
+
+            # Mantiene prezzi, massimi e minimi
+            # sulla stessa base di rettifica.
+            adjustment_factor = adjusted_close / close
+
+            prices.append(adjusted_close)
+            highs.append(high * adjustment_factor)
+            lows.append(low * adjustment_factor)
             vols.append(float(volume))
 
         if len(prices) < MIN_HISTORY:
             print(
-                f"DATA ERROR {symbol}: "
+                f"DATA ERROR {ticker}: "
                 f"only {len(prices)} days"
             )
             return None
@@ -431,11 +449,8 @@ def get_prices(symbol):
         return prices, vols, highs, lows
 
     except Exception as e:
-
-        print(f"DATA ERROR {symbol}: {e}")
-
+        print(f"DATA ERROR {ticker}: {e}")
         return None
-
 # ============================================================
 # SMA
 # ============================================================
