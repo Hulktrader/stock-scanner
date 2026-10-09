@@ -849,10 +849,13 @@ def analyze(symbol, name, benchmark_prices=None):
         else None
     )
 
+    
     near_30w_breakout = (
         distance_to_30w_high is not None
-        and -8.0 <= distance_to_30w_high <= 0
+        and 0 <= distance_to_30w_high <= 8.0
+        and not stage2_breakout
     )
+
 
 
     if near_30w_breakout and not stage2_breakout:
