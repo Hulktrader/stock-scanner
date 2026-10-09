@@ -938,6 +938,9 @@ def analyze(symbol, name, benchmark_prices=None):
         and tight_base
         and early_not_extended
         and early_rsi_ok
+        and not breakout_20
+        and not breakout_55
+        and not stage2_breakout
     ):
         signal = "EARLY TREND WATCH"
         entry_status = "WATCH BREAKOUT"
