@@ -209,9 +209,12 @@ def send_telegram_report(results, universe_size, elapsed):
             )
 
             lines.append(
-                f"{i}. {r['symbol']} ${r['price']:.2f} | "
-                f"Early {r['early_score']}/10 | "
-                f"T {r['turtle_early_score']}/5 W {r['weinstein_early_score']}/5"
+            f"🟡 <b>{i}. {r['symbol']} · ${r['price']:.2f}</b>"
+            )
+            lines.append(
+            f"Score <b>{r['early_score']}/10</b> · "
+            f"Turtle {r['turtle_early_score']}/5 · "
+            f"Weinstein {r['weinstein_early_score']}/5"
             )
             lines.append(f"   {r['signal']} | {r['entry_status']}")
             lines.append(
