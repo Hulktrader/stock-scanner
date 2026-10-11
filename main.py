@@ -51,10 +51,11 @@ def send_telegram_message(message):
         response = requests.post(
             url,
             json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message,
-                "disable_web_page_preview": True
-            },
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    },
             timeout=15
         )
 
