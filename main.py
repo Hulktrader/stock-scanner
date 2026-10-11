@@ -216,7 +216,7 @@ def send_telegram_report(results, universe_size, elapsed):
             f"Turtle {r['turtle_early_score']}/5 · "
             f"Weinstein {r['weinstein_early_score']}/5"
             )
-            lines.append(f"   {r['signal']} | {r['entry_status']}")
+            lines.append(f"   <b>{r['signal']} · {r['entry_status']}</b>")
             lines.append(
                 f"   20D {d20} | 55D {d55} | 30W {d30} | RSI {r['rsi']:.1f}"
                 if r['rsi'] is not None
@@ -238,10 +238,14 @@ def send_telegram_report(results, universe_size, elapsed):
         for i, r in enumerate(confirmed[:10], start=1):
             rsi_text = f"RSI {r['rsi']:.1f}" if r['rsi'] is not None else "RSI n/a"
             lines.append(
-                f"{i}. {r['symbol']} ${r['price']:.2f} | "
-                f"{r['score']}/10 | T {r['turtle_score']}/5 W {r['weinstein_score']}/5"
+            f"🟢 <b>{i}. {r['symbol']} · ${r['price']:.2f}</b>"
             )
-            lines.append(f"   {r['signal']} | {r['entry_status']} | {rsi_text}")
+            lines.append(
+            f"Score <b>{r['score']}/10</b> · "
+            f"Turtle {r['turtle_score']}/5 · "
+            f"Weinstein {r['weinstein_score']}/5"
+            )
+            lines.append(f"   <b>{r['signal']} · {r['entry_status']}</b> · {rsi_text}")
     else:
         lines.append("No confirmed candidates with score >= 7.")
 
