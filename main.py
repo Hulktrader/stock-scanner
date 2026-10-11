@@ -73,6 +73,67 @@ def send_telegram_message(message):
         return False
 
 
+def build_exit_radar_lines(early_candidates, confirmed_candidates):
+    """Crea EXIT RADAR per gli stessi titoli mostrati nel report Telegram."""
+    lines = ["EXIT RADAR — TITOLI SELEZIONATI", ""]
+
+    groups = [
+        ("EARLY TREND / PRE-BREAKOUT", early_candidates[:10]),
+        ("CONFIRMED TREND / BREAKOUT", confirmed_candidates[:10]),
+    ]
+
+    for group_name, stocks in groups:
+        lines.append(group_name)
+        lines.append("")
+
+        if not stocks:
+            lines.append("Nessun titolo da monitorare in questa categoria.")
+            lines.append("")
+            continue
+
+        for result in stocks:
+            symbol = result["symbol"]
+            price = result["price"]
+            resistance = result.get("exit_resistance")
+            stop = result.get("exit_stop")
+
+            if stop is not None and price <= stop:
+                status = "STOP WATCH"
+            elif resistance is not None and price >= resistance * 0.98:
+                status = "PARTIAL PROFIT WATCH"
+            elif resistance is None:
+                status = "HOLD — RESISTENZA NON INDIVIDUATA"
+            elif resistance is not None and price > 0 and ((resistance / price) - 1) * 100 <= 3:
+                status = "RESISTANCE NEAR"
+            elif result.get("signal") in ("EARLY STRONG TREND", "EARLY TREND WATCH"):
+                status = "WATCH BREAKOUT"
+            else:
+                status = "HOLD"
+
+            lines.append(f"{symbol} | Prezzo: ${price:.2f}")
+            lines.append(
+                f"   Resistenza: ${resistance:.2f}"
+                if resistance is not None
+                else "   Resistenza: non individuata sopra il prezzo"
+            )
+            lines.append(
+                f"   Stop tecnico indicativo: ${stop:.2f}"
+                if stop is not None
+                else "   Stop tecnico indicativo: n/a"
+            )
+
+            if resistance is not None and price > 0:
+                distance = ((resistance / price) - 1) * 100
+                lines.append(f"   Distanza resistenza: {distance:.1f}%")
+
+            lines.append(f"   Stato: {status}")
+            lines.append("")
+
+    lines.append("Livelli tecnici indicativi: verificare il grafico prima di agire.")
+    lines.append("EXIT RADAR non invia ordini al broker.")
+    return lines
+
+
 def send_telegram_report(results, universe_size, elapsed):
 
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -179,7 +240,9 @@ def send_telegram_report(results, universe_size, elapsed):
         lines.append("No confirmed candidates with score >= 7.")
 
     lines.append("")
-    lines.append("HulkTrader: Turtle + Weinstein + Early Trend")
+    lines.extend(build_exit_radar_lines(early_candidates, confirmed))
+    lines.append("")
+    lines.append("HulkTrader: Turtle + Weinstein + Early Trend + Exit Radar")
 
     message = "\n".join(lines)
 
@@ -397,6 +460,8 @@ def get_prices(symbol):
             print(f"DATA ERROR {ticker}: invalid response")
             return None
 
+        data.sort(key=lambda row: row.get("date", ""))
+
         prices = []
         vols = []
         highs = []
@@ -604,6 +669,26 @@ def analyze(symbol, name, benchmark_prices=None):
     atr_pct = (
         (atr20 / price) * 100
         if atr20 is not None and price > 0
+        else None
+    )
+
+    # EXIT RADAR: resistenza superiore più vicina fra i massimi
+    # delle ultime 20, 55 e 150 sedute (esclusa la seduta corrente).
+    resistance_candidates = []
+    for window in (20, 55, 150):
+        if len(highs) > window:
+            level = max(highs[-(window + 1):-1])
+            if level > price * 1.005:
+                resistance_candidates.append(level)
+
+    exit_resistance = min(resistance_candidates) if resistance_candidates else None
+
+    # Stop tecnico prudente: minimo delle ultime 10 sedute meno 0,5 ATR.
+    # È un livello di monitoraggio, non un ordine inviato al broker.
+    recent_swing_low = min(lows[-10:]) if len(lows) >= 10 else None
+    exit_stop = (
+        recent_swing_low - (0.5 * atr20)
+        if recent_swing_low is not None and atr20 is not None
         else None
     )
 
@@ -969,6 +1054,8 @@ def analyze(symbol, name, benchmark_prices=None):
         "breakout_55": breakout_55,
         "atr20": atr20,
         "atr_pct": atr_pct,
+        "exit_resistance": exit_resistance,
+        "exit_stop": exit_stop,
         "sma30w": sma30w,
         "stage2_ma_rising": stage2_ma_rising,
         "stage2_breakout": stage2_breakout,
