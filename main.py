@@ -173,19 +173,21 @@ def send_telegram_report(results, universe_size, elapsed):
     lines = []
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    lines.append("HULKTRADER ENTRY RADAR")
-    lines.append("USA | " + now)
+    lines.append("🟢 <b>HULKTRADER ENTRY RADAR</b>")
+    lines.append(f"🇺🇸 <b>USA</b> | {now}")
     lines.append("")
-    lines.append(f"Universe: {universe_size:,}")
-    lines.append(f"Valid stocks: {len(results):,}")
-    lines.append(f"Scan time: {elapsed / 60:.1f} min")
+    lines.append("━━━━━━━━━━━━━━━━━━")
+    lines.append("📊 <b>SCAN SUMMARY</b>")
+    lines.append(f"Universe: <b>{universe_size:,}</b>")
+    lines.append(f"Valid stocks: <b>{len(results):,}</b>")
+    lines.append(f"Scan time: <b>{elapsed / 60:.1f} min</b>")
+    lines.append("━━━━━━━━━━━━━━━━━━")
     lines.append("")
-
     # --------------------------------------------------------
     # EARLY TREND
     # --------------------------------------------------------
 
-    lines.append("EARLY TREND / PRE-BREAKOUT")
+    lines.append("🎯 <b>EARLY TREND / PRE-BREAKOUT</b>")
     lines.append(f"Candidates: {len(early_candidates)}")
 
     if early_candidates:
@@ -226,7 +228,7 @@ def send_telegram_report(results, universe_size, elapsed):
     # CONFIRMED TREND
     # --------------------------------------------------------
 
-    lines.append("CONFIRMED TREND / BREAKOUT")
+    lines.append("🚀 <b>CONFIRMED TREND / BREAKOUT</b>")
     lines.append("")
 
     if confirmed:
