@@ -72,23 +72,26 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"TELEGRAM ERROR: {e}")
         return False
-
-
 def build_exit_radar_lines(early_candidates, confirmed_candidates):
-    """Crea EXIT RADAR per gli stessi titoli mostrati nel report Telegram."""
-    lines = ["EXIT RADAR — TITOLI SELEZIONATI", ""]
+    """Formatta EXIT RADAR per i 20 titoli selezionati."""
+    lines = [
+        "━━━━━━━━━━━━━━━━━━",
+        "🛡️ <b>EXIT RADAR</b>",
+        "<i>Livelli tecnici indicativi · Nessun ordine automatico</i>",
+        ""
+    ]
 
     groups = [
-        ("EARLY TREND / PRE-BREAKOUT", early_candidates[:10]),
-        ("CONFIRMED TREND / BREAKOUT", confirmed_candidates[:10]),
+        ("🎯 EARLY TREND / PRE-BREAKOUT", early_candidates[:10]),
+        ("🚀 CONFIRMED TREND / BREAKOUT", confirmed_candidates[:10]),
     ]
 
     for group_name, stocks in groups:
-        lines.append(group_name)
+        lines.append(f"<b>{group_name}</b>")
         lines.append("")
 
         if not stocks:
-            lines.append("Nessun titolo da monitorare in questa categoria.")
+            lines.append("<i>Nessun titolo da monitorare in questa categoria.</i>")
             lines.append("")
             continue
 
@@ -99,41 +102,38 @@ def build_exit_radar_lines(early_candidates, confirmed_candidates):
             stop = result.get("exit_stop")
 
             if stop is not None and price <= stop:
-                status = "STOP WATCH"
+                status = "🔴 STOP WATCH"
             elif resistance is not None and price >= resistance * 0.98:
-                status = "PARTIAL PROFIT WATCH"
+                status = "🟠 PARTIAL PROFIT WATCH"
             elif resistance is None:
-                status = "HOLD — RESISTENZA NON INDIVIDUATA"
-            elif resistance is not None and price > 0 and ((resistance / price) - 1) * 100 <= 3:
-                status = "RESISTANCE NEAR"
+                status = "⚪ HOLD · Resistenza non individuata"
+            elif price > 0 and ((resistance / price) - 1) * 100 <= 3:
+                status = "🔵 RESISTANCE NEAR"
             elif result.get("signal") in ("EARLY STRONG TREND", "EARLY TREND WATCH"):
-                status = "WATCH BREAKOUT"
+                status = "🟡 WATCH BREAKOUT"
             else:
-                status = "HOLD"
+                status = "⚪ HOLD"
 
-            lines.append(f"{symbol} | Prezzo: ${price:.2f}")
-            lines.append(
-                f"   Resistenza: ${resistance:.2f}"
-                if resistance is not None
-                else "   Resistenza: non individuata sopra il prezzo"
-            )
-            lines.append(
-                f"   Stop tecnico indicativo: ${stop:.2f}"
-                if stop is not None
-                else "   Stop tecnico indicativo: n/a"
-            )
+            lines.append(f"▪️ <b>{symbol} · ${price:.2f}</b>")
 
             if resistance is not None and price > 0:
                 distance = ((resistance / price) - 1) * 100
-                lines.append(f"   Distanza resistenza: {distance:.1f}%")
+                lines.append(
+                    f"   Resistenza <b>${resistance:.2f}</b> · "
+                    f"Distanza <b>+{distance:.1f}%</b>"
+                )
+            else:
+                lines.append("   Resistenza: non individuata sopra il prezzo")
 
+            lines.append(
+                f"   Stop tecnico <b>${stop:.2f}</b>"
+                if stop is not None
+                else "   Stop tecnico: n/a"
+            )
             lines.append(f"   Stato: {status}")
             lines.append("")
 
-    lines.append("Livelli tecnici indicativi: verificare il grafico prima di agire.")
-    lines.append("EXIT RADAR non invia ordini al broker.")
     return lines
-
 
 def send_telegram_report(results, universe_size, elapsed):
 
