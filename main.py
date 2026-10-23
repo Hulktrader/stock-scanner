@@ -83,7 +83,7 @@ def build_exit_radar_lines(early_candidates, confirmed_candidates):
 
     groups = [
         ("🎯 EARLY TREND / PRE-BREAKOUT", early_candidates[:10]),
-        ("🚀 CONFIRMED TREND / BREAKOUT", confirmed_candidates[:10]),
+        ("🚀 CONFIRMED TREND / BREAKOUT", confirmed_candidates[:20]),
     ]
 
     for group_name, stocks in groups:
@@ -235,7 +235,7 @@ def send_telegram_report(results, universe_size, elapsed):
     lines.append("")
 
     if confirmed:
-        for i, r in enumerate(confirmed[:10], start=1):
+        for i, r in enumerate(confirmed[:20], start=1):
             rsi_text = f"RSI {r['rsi']:.1f}" if r['rsi'] is not None else "RSI n/a"
             lines.append(
             f"🟢 <b>{i}. {r['symbol']} · ${r['price']:.2f}</b>"
@@ -1166,7 +1166,7 @@ def main():
     print("HULKTRADER ENTRY RADAR")
     print("=" * 70)
 
-    for result in results[:10]:
+    for result in results[:20]:
 
         print(
             f"{result['symbol']:10} "
@@ -1186,7 +1186,7 @@ def main():
     print("TOP 10 OPPORTUNITIES")
     print("=" * 70)
 
-    for i, result in enumerate(results[:10], start=1):
+    for i, result in enumerate(results[:20], start=1):
 
         print()
         print(
